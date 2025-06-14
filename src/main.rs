@@ -43,14 +43,6 @@ fn git_clone(
         .output();
 }
 
-#[warn(dead_code)]
-fn is_directory_present(repo_dir: &String) -> bool {
-    return match fs::metadata(repo_dir).map(|metadata| metadata.is_dir()) {
-        Ok(is_dir) => is_dir,
-        _ => false,
-    };
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct RemoteRepo {
     name: String,
