@@ -82,7 +82,11 @@ async fn get_repos(
     return None;
 }
 
-async fn list_github_team_repos(token: &String, github_team_repo_url: &String, github_team_prefix: &String) -> Vec<RemoteRepo> {
+async fn list_github_team_repos(
+    token: &String,
+    github_team_repo_url: &String,
+    github_team_prefix: &String,
+) -> Vec<RemoteRepo> {
     let client = Client::new();
     let mut repos: Vec<RemoteRepo> = Vec::new();
     let mut page = 1;
@@ -120,7 +124,11 @@ fn list_local_repos(path: &String) -> Vec<LocalRepo> {
     repos
 }
 
-fn is_known_repo(remote_repo: &RemoteRepo, local_repos: &Vec<LocalRepo>, github_team_prefix: &String) -> bool {
+fn is_known_repo(
+    remote_repo: &RemoteRepo,
+    local_repos: &Vec<LocalRepo>,
+    github_team_prefix: &String,
+) -> bool {
     for local_repo in local_repos {
         if local_repo.name == remote_repo.name.replace(github_team_prefix.as_str(), "") {
             return true;
@@ -143,15 +151,15 @@ async fn main() {
     let local_repos = list_local_repos(&base_repo_dir);
     let mut pull_handles = Vec::new();
     for local_repo in local_repos.clone() {
-        let handle = tokio::spawn(async {
-            println!("pulling {}", local_repo.name);
+        let handle = tokio::task::spawn_blocking(|| {
             let result = git_pull(local_repo);
             return result;
         });
         pull_handles.push(handle);
     }
 
-    let github_team_repos = list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
+    let github_team_repos =
+        list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
     let new_repos: Vec<RemoteRepo> = github_team_repos
         .clone()
         .into_iter()
@@ -162,7 +170,7 @@ async fn main() {
     for new_repo in new_repos {
         let base_repo_dir_clone = base_repo_dir.clone();
         let github_team_prefix_clone = github_team_prefix.clone();
-        let handle = tokio::spawn(async {
+        let handle = tokio::task::spawn_blocking(|| {
             println!("cloning {}", &new_repo.name);
             let result = git_clone(new_repo, base_repo_dir_clone, github_team_prefix_clone);
             return result;
