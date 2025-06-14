@@ -1,4 +1,4 @@
-name: Build Rust Binary
+name: build linux release
 
 on:
   push:
@@ -14,13 +14,7 @@ jobs:
 
     strategy:
       matrix:
-        architecture:
-          [
-            x86_64-apple-darwin,
-            aarch64-apple-darwin,
-            x86_64-unknown-linux-gnu,
-            aarch64-unknown-linux-gnu,
-          ]
+        architecture: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
