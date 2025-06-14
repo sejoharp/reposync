@@ -32,11 +32,11 @@ jobs:
           target: ${{ matrix.architecture }}
           toolchain: stable
 
-      - name: installing toolchaines
-        run: rustup toolchain install stable --target ${{ matrix.architecture }}
-
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      
       - name: Build Rust binary
-        run: cargo build --release --target ${{ matrix.architecture }}
+        run: cross cargo build --release --target ${{ matrix.architecture }}
 
       - name: Rename binary
         run: mv target/${{ matrix.architecture }}/release/reposync target/${{ matrix.architecture }}/release/reposync-${{ matrix.architecture }}
