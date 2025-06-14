@@ -179,11 +179,17 @@ async fn main() {
     }
 
     for handle in pull_handles {
-        let _ = handle.await;
+        let result = handle.await.unwrap();
+        if let Err(message) = result {
+            println!("{}", message);
+        }
     }
     println!("Pulled {} repos.", local_repos.len());
     for handle in clone_handles {
-        let _ = handle.await;
+        let result = handle.await.unwrap();
+        if let Err(message) = result {
+            println!("{}", message);
+        }
     }
     println!("Cloned {} repos.", new_repos.len());
 }
