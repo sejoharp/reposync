@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -x
+
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 if [ "${OS}" != "linux" ] && [ "${OS}" != "darwin" ]; then
   echo "Unsupported OS: ${OS}"
