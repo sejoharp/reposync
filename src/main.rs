@@ -167,7 +167,7 @@ async fn main() {
         .collect();
 
     let mut clone_handles = Vec::new();
-    for new_repo in new_repos {
+    for new_repo in new_repos.clone() {
         let base_repo_dir_clone = base_repo_dir.clone();
         let github_team_prefix_clone = github_team_prefix.clone();
         let handle = tokio::task::spawn_blocking(|| {
@@ -181,7 +181,9 @@ async fn main() {
     for handle in pull_handles {
         let _ = handle.await;
     }
+    println!("Pulled {} repos.", local_repos.len());
     for handle in clone_handles {
         let _ = handle.await;
     }
+    println!("Cloned {} repos.", new_repos.len());
 }
