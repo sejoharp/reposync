@@ -1,9 +1,11 @@
+use clap::value_parser;
 use clap::Arg;
 use reqwest::Client;
 use reqwest::header::ACCEPT;
 use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, fs, path::PathBuf, process::Command};
+use reqwest::Url;
 
 fn is_git_repo(path: &String) -> bool {
     if let Ok(entries) = fs::read_dir(path) {
@@ -33,7 +35,7 @@ fn git_pull(local_repo: LocalRepo) -> Result<std::process::Output, std::io::Erro
 
 fn git_clone(
     remote_repo: RemoteRepo,
-    repo_base_dir: String,
+    repo_base_dir: PathBuf,
     github_team_prefix: String,
 ) -> Result<std::process::Output, std::io::Error> {
     return Command::new("git")
@@ -55,10 +57,10 @@ async fn get_repos(
     client: &Client,
     token: &String,
     page: i32,
-    github_team_repo_url: &String,
+    github_team_repo_url: &Url,
 ) -> Option<Vec<RemoteRepo>> {
     let repos = client
-        .get(github_team_repo_url)
+        .get(github_team_repo_url.clone())
         .header(ACCEPT, "application/vnd.github.v3+json")
         .header(USER_AGENT, "reposync")
         .bearer_auth(token)
@@ -77,7 +79,7 @@ async fn get_repos(
 
 async fn list_github_team_repos(
     token: &String,
-    github_team_repo_url: &String,
+    github_team_repo_url: &Url,
     github_team_prefix: &String,
 ) -> Vec<RemoteRepo> {
     let client = Client::new();
@@ -100,7 +102,7 @@ struct LocalRepo {
     path: PathBuf,
 }
 
-fn list_local_repos(path: &String) -> Vec<LocalRepo> {
+fn list_local_repos(path: &PathBuf) -> Vec<LocalRepo> {
     let mut repos: Vec<LocalRepo> = Vec::new();
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries {
@@ -140,13 +142,15 @@ async fn main() {
                 .long("github_team_repo_url")
                 .env("GITHUB_TEAM_REPO_URL")
                 .required(true)
-                .help("Points to github repo list. e.g. https://api.github.com/organizations/[organization_id]/team/[team_id]/repos"))
+                .value_parser(value_parser!(Url))
+                .help("Points to github repo list. e.g. https://api.github.com/organizations/[organization_id]/team/[team_id]/repos."))
         .arg(
             Arg::new("repo_root_dir")
                 .short('d')
                 .long("repo_root_dir")
                 .env("REPO_ROOT_DIR")
                 .required(true)
+                .value_parser(value_parser!(PathBuf))
                 .help("It has to point to the directory with all repos."))
         .arg(
             Arg::new("github_token")
@@ -165,9 +169,9 @@ async fn main() {
                 .help("e.g. [team_] When cloning this prefix would be removed. If your team does not use it, set it to empty."))
         .get_matches();
 
-    let repo_root_dir = matches.get_one::<String>("repo_root_dir").unwrap();
+    let repo_root_dir = matches.get_one::<PathBuf>("repo_root_dir").unwrap();
     let token = matches.get_one::<String>("github_token").unwrap();
-    let github_team_repo_url = matches.get_one::<String>("github_team_repo_url").unwrap();
+    let github_team_repo_url = matches.get_one::<Url>("github_team_repo_url").unwrap();
     let github_team_prefix = matches.get_one::<String>("github_team_prefix").unwrap();
 
     let local_repos = list_local_repos(&repo_root_dir);
