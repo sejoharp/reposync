@@ -1,3 +1,4 @@
+use clap::Arg;
 use reqwest::Client;
 use reqwest::header::ACCEPT;
 use reqwest::header::USER_AGENT;
@@ -131,16 +132,44 @@ fn is_known_repo(
 
 #[tokio::main]
 async fn main() {
-    let base_repo_dir = std::env::var("REPO_ROOT_DIR")
-        .expect("REPO_ROOT_DIR not set. It has to point to the directory with all repos.");
-    let token = std::env::var("GITHUB_TOKEN")
-        .expect("GITHUB_TOKEN not set. Its needed to list all github repos.");
-    let github_team_repo_url = std::env::var("GITHUB_TEAM_REPO_URL")
-        .expect("GITHUB_TEAM_REPO_URL not set. Points to github repo list. e.g. https://api.github.com/organizations/[organization_id]/team/[team_id]/repos");
-    let github_team_prefix = std::env::var("GITHUB_TEAM_PREFIX")
-        .expect("GITHUB_TEAM_PREFIX not set. e.g. [team_name_] When cloning this prefix would be removed. If your team does not use it, set it to empty.");
+    let matches = clap::Command::new("reposync")
+        .about("tool to keep team repos up to date.")
+        .arg(
+            Arg::new("github_team_repo_url")
+                .short('u')
+                .long("github_team_repo_url")
+                .env("GITHUB_TEAM_REPO_URL")
+                .required(true)
+                .help("Points to github repo list. e.g. https://api.github.com/organizations/[organization_id]/team/[team_id]/repos"))
+        .arg(
+            Arg::new("repo_root_dir")
+                .short('d')
+                .long("repo_root_dir")
+                .env("REPO_ROOT_DIR")
+                .required(true)
+                .help("It has to point to the directory with all repos."))
+        .arg(
+            Arg::new("github_token")
+                .short('t')
+                .long("github_token")
+                .env("GITHUB_TOKEN")
+                .required(true)
+                .help("Github token with permissions to list all team repos."))
+        .arg(
+            Arg::new("github_team_prefix")
+                .short('p')
+                .long("github_team_prefix")
+                .env("GITHUB_TEAM_PREFIX")
+                .required(true)
+                .help("e.g. [team_] When cloning this prefix would be removed. If your team does not use it, set it to empty."))
+        .get_matches();
 
-    let local_repos = list_local_repos(&base_repo_dir);
+    let repo_root_dir = matches.get_one::<String>("repo_root_dir").unwrap();
+    let token = matches.get_one::<String>("github_token").unwrap();
+    let github_team_repo_url = matches.get_one::<String>("github_team_repo_url").unwrap();
+    let github_team_prefix = matches.get_one::<String>("github_team_prefix").unwrap();
+
+    let local_repos = list_local_repos(&repo_root_dir);
     let mut pull_handles = Vec::new();
     for local_repo in local_repos.clone() {
         let handle = tokio::task::spawn_blocking(|| {
@@ -160,7 +189,7 @@ async fn main() {
 
     let mut clone_handles = Vec::new();
     for new_repo in new_repos.clone() {
-        let base_repo_dir_clone = base_repo_dir.clone();
+        let base_repo_dir_clone = repo_root_dir.clone();
         let github_team_prefix_clone = github_team_prefix.clone();
         let handle = tokio::task::spawn_blocking(|| {
             println!("cloning {}", &new_repo.name);
