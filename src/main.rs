@@ -154,6 +154,7 @@ async fn main() {
                 .long("github_token")
                 .env("GITHUB_TOKEN")
                 .required(true)
+                .hide_env_values(true)
                 .help("Github token with permissions to list all team repos."))
         .arg(
             Arg::new("github_team_prefix")
