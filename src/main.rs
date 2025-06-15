@@ -1,11 +1,11 @@
-use clap::value_parser;
 use clap::Arg;
+use clap::value_parser;
 use reqwest::Client;
+use reqwest::Url;
 use reqwest::header::ACCEPT;
 use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::{ffi::OsStr, fs, path::PathBuf, process::Command};
-use reqwest::Url;
 
 fn is_git_repo(path: &String) -> bool {
     if let Ok(entries) = fs::read_dir(path) {
@@ -35,14 +35,14 @@ fn git_pull(local_repo: LocalRepo) -> Result<std::process::Output, std::io::Erro
 
 fn git_clone(
     remote_repo: RemoteRepo,
-    repo_base_dir: PathBuf,
+    repo_root_dir: PathBuf,
     github_team_prefix: String,
 ) -> Result<std::process::Output, std::io::Error> {
     return Command::new("git")
         .arg("clone")
         .arg(remote_repo.git_url.clone())
         .arg(remote_repo.name.replace(github_team_prefix.as_str(), ""))
-        .current_dir(repo_base_dir)
+        .current_dir(repo_root_dir)
         .output();
 }
 
@@ -194,11 +194,11 @@ async fn main() {
 
     let mut clone_handles = Vec::new();
     for new_repo in new_repos.clone() {
-        let base_repo_dir_clone = repo_root_dir.clone();
+        let repo_root_dir_clone = repo_root_dir.clone();
         let github_team_prefix_clone = github_team_prefix.clone();
         let handle = tokio::task::spawn_blocking(|| {
             println!("cloning {}", &new_repo.name);
-            let result = git_clone(new_repo, base_repo_dir_clone, github_team_prefix_clone);
+            let result = git_clone(new_repo, repo_root_dir_clone, github_team_prefix_clone);
             return result;
         });
         clone_handles.push(handle);
