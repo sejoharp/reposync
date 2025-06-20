@@ -5,6 +5,7 @@ use reqwest::Url;
 use reqwest::header::ACCEPT;
 use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
+use std::str;
 use std::{ffi::OsStr, fs, path::PathBuf, process::Command};
 
 fn is_git_repo(path: &String) -> bool {
@@ -25,6 +26,13 @@ fn is_git_repo(path: &String) -> bool {
         }
     }
     false
+}
+
+#[derive(PartialEq)]
+enum RepoState {
+    Updated,
+    AlreadyUpToDate,
+    Error,
 }
 fn git_pull(local_repo: LocalRepo) -> Result<std::process::Output, std::io::Error> {
     return Command::new("git")
@@ -177,9 +185,19 @@ async fn main() {
     let local_repos = list_local_repos(&repo_root_dir);
     let mut pull_handles = Vec::new();
     for local_repo in local_repos.clone() {
-        let handle = tokio::task::spawn_blocking(|| {
-            let result = git_pull(local_repo);
-            return result;
+        let handle = tokio::task::spawn_blocking(move || {
+            let result = git_pull(local_repo.clone());
+            if let Err(message) = result {
+                println!("Pulling {:?} failed with message:{}", local_repo, message);
+                return RepoState::Error;
+            } else if let Ok(output) = result {
+                if str::from_utf8(output.stdout.trim_ascii()).unwrap() != "Already up to date." {
+                    return RepoState::Updated;
+                } else {
+                    return RepoState::AlreadyUpToDate;
+                }
+            }
+            return RepoState::Error;
         });
         pull_handles.push(handle);
     }
@@ -204,18 +222,20 @@ async fn main() {
         clone_handles.push(handle);
     }
 
+    let mut repos_with_new_commits = 0;
     for handle in pull_handles {
         let result = handle.await.unwrap();
-        if let Err(message) = result {
-            println!("{}", message);
+        if result == RepoState::Updated {
+            repos_with_new_commits += 1;
         }
     }
-    println!("Pulled {} repos.", local_repos.len());
     for handle in clone_handles {
         let result = handle.await.unwrap();
         if let Err(message) = result {
             println!("{}", message);
         }
     }
-    println!("Cloned {} repos.", new_repos.len());
+    println!("Local repos: {}", local_repos.len());
+    println!("Updated repos: {}", repos_with_new_commits);
+    println!("Cloned repos: {}", new_repos.len());
 }
