@@ -11,13 +11,6 @@ on:
 permissions:
   contents: write
 
-# apt update && apt install git curl build-essential gcc-x86-64-linux-gnu -y
-# curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-# source ~/.cargo/env
-# rustup target add x86_64-unknown-linux-gnu
-# export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/x86_64-linux-gnu-gcc
-# cargo build --target=x86_64-unknown-linux-gnu
-
 jobs:
   build-linux:
     runs-on: ${{ matrix.os }}
@@ -39,7 +32,7 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: aarch64-unknown-linux-gnu
+          target: ${{ matrix.arch }}
           toolchain: stable
 
       - name: Build Rust binary
