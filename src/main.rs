@@ -1,5 +1,6 @@
 use clap::Arg;
 use clap::value_parser;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Client;
 use reqwest::Url;
 use reqwest::header::ACCEPT;
@@ -28,12 +29,6 @@ fn is_git_repo(path: &String) -> bool {
     false
 }
 
-#[derive(PartialEq)]
-enum RepoState {
-    Updated,
-    AlreadyUpToDate,
-    Error,
-}
 fn git_pull(local_repo: LocalRepo) -> Result<std::process::Output, std::io::Error> {
     return Command::new("git")
         .arg("pull")
@@ -183,23 +178,38 @@ async fn main() {
     let github_team_prefix = matches.get_one::<String>("github_team_prefix").unwrap();
 
     let local_repos = list_local_repos(&repo_root_dir);
-    let mut pull_handles = Vec::new();
+
+    let m = MultiProgress::new();
+    let sty = ProgressStyle::with_template("pulling: {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+        .unwrap()
+        .progress_chars("##-");
+    let pull_pb = m.add(ProgressBar::new(local_repos.len() as u64));
+    pull_pb.set_style(sty);
+
+    let new_commits_clone =
+        ProgressStyle::with_template("Updated: {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+            .unwrap()
+            .progress_chars("##-");
+    let new_commits_pb = m.add(ProgressBar::no_length());
+    new_commits_pb.set_style(new_commits_clone);
+
+    let mut threads = Vec::new();
+
     for local_repo in local_repos.clone() {
+        let pull_pb_clone = pull_pb.clone();
+        let new_commits_pb_clone = new_commits_pb.clone();
         let handle = tokio::task::spawn_blocking(move || {
             let result = git_pull(local_repo.clone());
+            pull_pb_clone.inc(1);
             if let Err(message) = result {
                 println!("Pulling {:?} failed with message:{}", local_repo, message);
-                return RepoState::Error;
             } else if let Ok(output) = result {
                 if str::from_utf8(output.stdout.trim_ascii()).unwrap() != "Already up to date." {
-                    return RepoState::Updated;
-                } else {
-                    return RepoState::AlreadyUpToDate;
+                    new_commits_pb_clone.inc(1);
                 }
             }
-            return RepoState::Error;
         });
-        pull_handles.push(handle);
+        threads.push(handle);
     }
 
     let github_team_repos =
@@ -210,32 +220,30 @@ async fn main() {
         .filter(|repo| !is_known_repo(&repo, &local_repos, &github_team_prefix))
         .collect();
 
-    let mut clone_handles = Vec::new();
+    let style_clone =
+        ProgressStyle::with_template("cloning: {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
+            .unwrap()
+            .progress_chars("##-");
+    let clone_pb = m.add(ProgressBar::new(new_repos.len() as u64));
+    clone_pb.set_style(style_clone);
+
     for new_repo in new_repos.clone() {
+        let clone_pb_clone = clone_pb.clone();
         let repo_root_dir_clone = repo_root_dir.clone();
         let github_team_prefix_clone = github_team_prefix.clone();
-        let handle = tokio::task::spawn_blocking(|| {
+        let handle = tokio::task::spawn_blocking(move || {
             println!("cloning {}", &new_repo.name);
-            let result = git_clone(new_repo, repo_root_dir_clone, github_team_prefix_clone);
-            return result;
+            let _ = git_clone(new_repo, repo_root_dir_clone, github_team_prefix_clone);
+            clone_pb_clone.inc(1);
         });
-        clone_handles.push(handle);
+        threads.push(handle);
     }
 
-    let mut repos_with_new_commits = 0;
-    for handle in pull_handles {
-        let result = handle.await.unwrap();
-        if result == RepoState::Updated {
-            repos_with_new_commits += 1;
-        }
+    for thread in threads {
+        thread.await.unwrap();
     }
-    for handle in clone_handles {
-        let result = handle.await.unwrap();
-        if let Err(message) = result {
-            println!("{}", message);
-        }
-    }
-    println!("Local repos: {}", local_repos.len());
-    println!("Updated repos: {}", repos_with_new_commits);
-    println!("Cloned repos: {}", new_repos.len());
+
+    pull_pb.finish_with_message("done");
+    clone_pb.finish_with_message("done");
+    new_commits_pb.finish_with_message("done");
 }
