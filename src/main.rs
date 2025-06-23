@@ -179,18 +179,18 @@ async fn main() {
 
     let local_repos = list_local_repos(&repo_root_dir);
 
-    let m = MultiProgress::new();
+    let multi_progress_bar = MultiProgress::new();
     let sty = ProgressStyle::with_template("pulling: {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
         .unwrap()
         .progress_chars("##-");
-    let pull_pb = m.add(ProgressBar::new(local_repos.len() as u64));
+    let pull_pb = multi_progress_bar.add(ProgressBar::new(local_repos.len() as u64));
     pull_pb.set_style(sty);
 
     let new_commits_clone =
         ProgressStyle::with_template("Updated: {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
             .unwrap()
             .progress_chars("##-");
-    let new_commits_pb = m.add(ProgressBar::no_length());
+    let new_commits_pb = multi_progress_bar.add(ProgressBar::no_length());
     new_commits_pb.set_style(new_commits_clone);
 
     let mut threads = Vec::new();
@@ -224,7 +224,7 @@ async fn main() {
         ProgressStyle::with_template("cloning: {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
             .unwrap()
             .progress_chars("##-");
-    let clone_pb = m.add(ProgressBar::new(new_repos.len() as u64));
+    let clone_pb = multi_progress_bar.add(ProgressBar::new(new_repos.len() as u64));
     clone_pb.set_style(style_clone);
 
     for new_repo in new_repos.clone() {
