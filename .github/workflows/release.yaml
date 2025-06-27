@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Get commit count
         run: echo "COMMIT_COUNT=$(git rev-list --count HEAD)" >> $GITHUB_ENV
@@ -48,6 +50,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: target/${{ matrix.arch }}/release/reposync-${{ matrix.arch }}
-          tag_name: v${{ env.COMMIT_COUNT }}
+          tag_name: ${{ env.COMMIT_COUNT }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
