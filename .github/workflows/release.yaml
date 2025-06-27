@@ -26,11 +26,11 @@ jobs:
           - os: macos-latest
             arch: aarch64-apple-darwin
     steps:
-      - name: Get commit count
-        run: echo "COMMIT_COUNT=$(git rev-list --count HEAD)" >> $GITHUB_ENV
-
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get commit count
+        run: echo "COMMIT_COUNT=$(git rev-list --count HEAD)" >> $GITHUB_ENV
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
