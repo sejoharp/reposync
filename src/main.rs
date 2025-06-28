@@ -294,12 +294,12 @@ fn find_new_repos(
 
 #[tokio::main]
 async fn main() {
-    let matches = parse_command_line_arguments();
+    let cli = parse_command_line_arguments();
 
-    let repo_root_dir = matches.get_one::<PathBuf>("repo_root_dir").unwrap();
-    let token = matches.get_one::<String>("github_token").unwrap();
-    let github_team_repo_url = matches.get_one::<Url>("github_team_repo_url").unwrap();
-    let github_team_prefix = matches.get_one::<String>("github_team_prefix").unwrap();
+    let repo_root_dir = cli.get_one::<PathBuf>("repo_root_dir").unwrap();
+    let token = cli.get_one::<String>("github_token").unwrap();
+    let github_team_repo_url = cli.get_one::<Url>("github_team_repo_url").unwrap();
+    let github_team_prefix = cli.get_one::<String>("github_team_prefix").unwrap();
 
     let local_repos = list_local_repos(&repo_root_dir);
 
