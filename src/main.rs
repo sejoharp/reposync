@@ -8,6 +8,7 @@ use reqwest::header::USER_AGENT;
 use serde::{Deserialize, Serialize};
 use std::str;
 use std::{ffi::OsStr, fs, path::PathBuf, process::Command};
+use tokio::task::JoinHandle;
 
 fn is_git_repo(path: &String) -> bool {
     if let Ok(entries) = fs::read_dir(path) {
@@ -37,7 +38,7 @@ fn git_pull(local_repo: LocalRepo) -> Result<std::process::Output, std::io::Erro
 }
 
 fn git_clone(
-    remote_repo: RemoteRepo,
+    remote_repo: &RemoteRepo,
     repo_root_dir: PathBuf,
     github_team_prefix: String,
 ) -> Result<std::process::Output, std::io::Error> {
@@ -97,6 +98,11 @@ async fn list_github_team_repos(
         .filter(|repo| !repo.archived)
         .filter(|repo| repo.name.starts_with(github_team_prefix.as_str()))
         .collect::<Vec<RemoteRepo>>();
+}
+
+struct GitMessage {
+    name: String,
+    message: String,
 }
 
 #[derive(Debug, Clone)]
@@ -193,21 +199,46 @@ async fn main() {
     let new_commits_pb = multi_progress_bar.add(ProgressBar::no_length());
     new_commits_pb.set_style(new_commits_clone);
 
-    let mut threads = Vec::new();
+    let mut threads: Vec<JoinHandle<Result<GitMessage, GitMessage>>> = Vec::new();
 
     for local_repo in local_repos.clone() {
         let pull_pb_clone = pull_pb.clone();
         let new_commits_pb_clone = new_commits_pb.clone();
         let handle = tokio::task::spawn_blocking(move || {
-            let result = git_pull(local_repo.clone());
-            pull_pb_clone.inc(1);
-            if let Err(message) = result {
-                println!("Pulling {:?} failed with message:{}", local_repo, message);
-            } else if let Ok(output) = result {
-                if str::from_utf8(output.stdout.trim_ascii()).unwrap() != "Already up to date." {
-                    new_commits_pb_clone.inc(1);
+            let _ = match git_pull(local_repo.clone()) {
+                Err(message) => {
+                    return Err(GitMessage {
+                        name: local_repo.name,
+                        message: format!("Pulling failed with message:{}", message),
+                    });
                 }
-            }
+                Ok(output) => {
+                    if str::from_utf8(output.stderr.trim_ascii()).unwrap() != "" {
+                        return Err(GitMessage {
+                            name: local_repo.name,
+                            message: str::from_utf8(output.stderr.trim_ascii())
+                                .unwrap()
+                                .to_string(),
+                        });
+                    } else {
+                        pull_pb_clone.inc(1);
+                        if str::from_utf8(output.stdout.trim_ascii()).unwrap()
+                            != "Already up to date."
+                        {
+                            new_commits_pb_clone.inc(1);
+                            return Ok(GitMessage {
+                                name: local_repo.name,
+                                message: "updated".to_string(),
+                            });
+                        } else {
+                            return Ok(GitMessage {
+                                name: local_repo.name,
+                                message: "".to_string(),
+                            });
+                        }
+                    }
+                }
+            };
         });
         threads.push(handle);
     }
@@ -232,18 +263,47 @@ async fn main() {
         let repo_root_dir_clone = repo_root_dir.clone();
         let github_team_prefix_clone = github_team_prefix.clone();
         let handle = tokio::task::spawn_blocking(move || {
-            println!("cloning {}", &new_repo.name);
-            let _ = git_clone(new_repo, repo_root_dir_clone, github_team_prefix_clone);
+            let _ = git_clone(&new_repo, repo_root_dir_clone, github_team_prefix_clone);
             clone_pb_clone.inc(1);
+            return Ok(GitMessage {
+                name: new_repo.name,
+                message: "cloned".to_string(),
+            });
         });
         threads.push(handle);
     }
 
+    let mut error_messages: Vec<GitMessage> = Vec::new();
+    let mut ok_messages: Vec<GitMessage> = Vec::new();
     for thread in threads {
-        thread.await.unwrap();
+        let _ = match thread.await.unwrap() {
+            Err(error_message) => {
+                error_messages.push(error_message);
+            }
+            Ok(message) => {
+                ok_messages.push(message);
+            }
+        };
     }
 
     pull_pb.finish_with_message("done");
     clone_pb.finish_with_message("done");
     new_commits_pb.finish_with_message("done");
+
+    for error_message in error_messages {
+        println!(
+            "===================================== ERROR in {} ====================================",
+            error_message.name
+        );
+        println!("{}", error_message.message);
+    }
+    for ok_message in ok_messages {
+        if !ok_message.message.is_empty() {
+            println!(
+                "===================================== Info for {} ====================================",
+                ok_message.name
+            );
+            println!("{}", ok_message.message);
+        }
+    }
 }
