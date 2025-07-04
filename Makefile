@@ -1,5 +1,5 @@
 .DEFAULT_GOAL:= help
-
+REPOSYNC_RELEASE_VERSION := $(shell git rev-list --count HEAD)
 .PHONY:dependencies 
 dependencies: ## downloads and installs dependencies
 	cargo update
@@ -12,8 +12,12 @@ test: ## executes tests
 build: ## builds binary with debug infos
 	cargo build
 
+.PHONY:version_update
+version_update: ## updates version in Cargo.toml
+	sed -i.bak "s/^version = \".*\"/version = \"$(REPOSYNC_RELEASE_VERSION).0.0\"/" Cargo.toml 2>/dev/null
+
 .PHONY:release
-release: ## builds release binary
+release: version_update ## builds release binary
 	cargo build --release
 
 .PHONY: install

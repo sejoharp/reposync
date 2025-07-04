@@ -40,6 +40,9 @@ jobs:
           target: ${{ matrix.arch }}
           toolchain: stable
 
+      - name: update version
+        run: make version_update
+
       - name: Build Rust binary
         run: cargo build --release --target ${{ matrix.arch }}
 
