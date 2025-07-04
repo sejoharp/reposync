@@ -144,6 +144,7 @@ fn is_known_repo(
 fn parse_command_line_arguments() -> clap::ArgMatches {
     clap::Command::new("reposync")
         .about("tool to keep team repos up to date.")
+        .version(env!("CARGO_PKG_VERSION"))
         .arg(
             Arg::new("github_team_repo_url")
                 .short('u')
