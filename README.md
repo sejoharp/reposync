@@ -21,13 +21,6 @@ A tool to keep local repos up to date and clone new repos from a given team.
 reposync
 ```
 
-The output will look like this:
-
-```
-Pulled 56 repos.
-Cloned 0 repos.
-```
-
 # Installation
 
 ## install release
@@ -45,7 +38,6 @@ make install
 ```
 
 ## set config
-
 ```bash
 export GITHUB_TEAM_REPO_URL=https://api.github.com/organizations/[org-id]/team/[team-id]/repos
 export REPO_ROOT_DIR=[dir/to/repo/root]
