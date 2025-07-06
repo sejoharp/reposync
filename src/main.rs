@@ -1,22 +1,17 @@
 use clap::Arg;
 use clap::value_parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif_log_bridge::LogWrapper;
 use reqwest::Url;
 use std::path::PathBuf;
 use std::str;
 mod git;
-use tokio::task::JoinHandle;
-
 use crate::git::find_new_repos;
 use crate::git::list_github_team_repos;
-
-
-
-struct GitMessage {
-    name: String,
-    message: String,
-}
 use git::{LocalRepo, RemoteRepo, list_local_repos};
+use log::{error, info};
+use simple_logger::SimpleLogger;
+use tokio::task::JoinHandle;
 
 fn parse_command_line_arguments() -> clap::ArgMatches {
     clap::Command::new("reposync")
@@ -64,39 +59,28 @@ fn handle_pull(
     pull_pb: &ProgressBar,
     new_commits_pb: &ProgressBar,
     local_repo: LocalRepo,
-) -> JoinHandle<Result<GitMessage, GitMessage>> {
+) -> JoinHandle<()> {
     let pull_pb_clone = pull_pb.clone();
     let new_commits_pb_clone = new_commits_pb.clone();
     let handle = tokio::task::spawn_blocking(move || {
         let _ = match git::git_pull(local_repo.clone()) {
             Err(message) => {
-                return Err(GitMessage {
-                    name: local_repo.name,
-                    message: format!("Pulling failed with message:{}", message),
-                });
+                error!(
+                    "{}: {}",
+                    local_repo.name,
+                    format!("Pulling failed with message:{}", message)
+                );
             }
             Ok(output) => {
-                if str::from_utf8(output.stderr.trim_ascii()).unwrap() != "" {
-                    return Err(GitMessage {
-                        name: local_repo.name,
-                        message: str::from_utf8(output.stderr.trim_ascii())
-                            .unwrap()
-                            .to_string(),
-                    });
+                let error_message = str::from_utf8(output.stderr.trim_ascii()).unwrap();
+                if error_message != "" {
+                    error!("{}: {}", local_repo.name, error_message);
                 } else {
                     pull_pb_clone.inc(1);
-                    if str::from_utf8(output.stdout.trim_ascii()).unwrap() != "Already up to date."
-                    {
+                    let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
+                    if info_message != "Already up to date." {
                         new_commits_pb_clone.inc(1);
-                        return Ok(GitMessage {
-                            name: local_repo.name,
-                            message: "updated".to_string(),
-                        });
-                    } else {
-                        return Ok(GitMessage {
-                            name: local_repo.name,
-                            message: "".to_string(),
-                        });
+                        info!("{}: {}", local_repo.name, "updated");
                     }
                 }
             }
@@ -110,7 +94,7 @@ fn handle_clone(
     repo_root_dir: &PathBuf,
     github_team_prefix: &String,
     new_repo: RemoteRepo,
-) -> JoinHandle<Result<GitMessage, GitMessage>> {
+) -> JoinHandle<()> {
     let clone_pb_clone = clone_pb.clone();
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
@@ -121,10 +105,7 @@ fn handle_clone(
             github_team_prefix_clone,
         );
         clone_pb_clone.inc(1);
-        return Ok(GitMessage {
-            name: new_repo.clone().name,
-            message: "cloned".to_string(),
-        });
+        info!("{} cloned", new_repo.name);
     });
     return handle;
 }
@@ -145,27 +126,6 @@ fn create_progressbar(
     return clone_pb;
 }
 
-fn print_git_message_with_separator(messages: Vec<GitMessage>, title_prefix: String) {
-    for message in messages {
-        if message.message.is_empty() {
-            continue;
-        }
-        println!(
-            "===================================== {} in {} ====================================",
-            title_prefix, message.name
-        );
-        println!("{}", message.message);
-    }
-}
-fn print_git_message(messages: Vec<GitMessage>) {
-    for message in messages {
-        if message.message.is_empty() {
-            continue;
-        }
-        println!("{} {}", message.name, message.message);
-    }
-}
-
 #[tokio::main]
 async fn main() {
     let cli = parse_command_line_arguments();
@@ -179,7 +139,13 @@ async fn main() {
 
     let multi_progress_bar = MultiProgress::new();
 
-    let mut threads: Vec<JoinHandle<Result<GitMessage, GitMessage>>> = Vec::new();
+    let logger = SimpleLogger::new().with_level(log::LevelFilter::Warn);
+    LogWrapper::new(multi_progress_bar.clone(), logger)
+        .try_init()
+        .unwrap();
+
+
+    let mut threads: Vec<JoinHandle<()>> = Vec::new();
 
     let pull_pb = create_progressbar(
         &multi_progress_bar,
@@ -205,23 +171,11 @@ async fn main() {
         ));
     }
 
-    let mut error_messages: Vec<GitMessage> = Vec::new();
-    let mut ok_messages: Vec<GitMessage> = Vec::new();
     for thread in threads {
-        let _ = match thread.await.unwrap() {
-            Err(error_message) => {
-                error_messages.push(error_message);
-            }
-            Ok(message) => {
-                ok_messages.push(message);
-            }
-        };
+        let _ = thread.await;
     }
 
     pull_pb.finish_with_message("done");
     clone_pb.finish_with_message("done");
     new_commits_pb.finish_with_message("done");
-
-    print_git_message(ok_messages);
-    print_git_message_with_separator(error_messages, "ERROR in".to_string());
 }
