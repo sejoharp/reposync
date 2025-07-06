@@ -19,7 +19,7 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
         .version(env!("CARGO_PKG_VERSION"))
         .arg(
             Arg::new("github_team_repo_url")
-                .short('g')
+                .short('u')
                 .long("github_team_repo_url")
                 .env("GITHUB_TEAM_REPO_URL")
                 .required(true)
@@ -45,15 +45,6 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
                 .help("Github token with permissions to list all team repos."),
         )
         .arg(
-            Arg::new("github_user")
-                .short('u')
-                .long("github_user")
-                .env("GITHUB_USER")
-                .required(true)
-                .hide_env_values(true)
-                .help("Github user with permissions to list all team repos."),
-        )
-        .arg(
             Arg::new("github_team_prefix")
                 .short('p')
                 .long("github_team_prefix")
@@ -65,8 +56,7 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
 }
 
 fn handle_new_pull(multi_progress: &MultiProgress, local_repo: LocalRepo) -> JoinHandle<()> {
-    let spinner_style =
-        ProgressStyle::with_template("{wide_msg}").unwrap();
+    let spinner_style = ProgressStyle::with_template("{wide_msg}").unwrap();
     let bar = multi_progress.add(ProgressBar::new(10));
     bar.set_style(spinner_style.clone());
     bar.set_message(format!("{}: waiting...", local_repo.name));
@@ -85,9 +75,11 @@ fn handle_new_pull(multi_progress: &MultiProgress, local_repo: LocalRepo) -> Joi
                 let error_message = str::from_utf8(output.stderr.trim_ascii()).unwrap();
                 let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
                 if !error_message.is_empty() {
-                    error!("{}: {}", local_repo.name, error_message);
                     bar.finish_with_message(format!("{}: error", local_repo.name));
-                } else if info_message != "Already up to date." && !info_message.contains("is up to date") {
+                    error!("{}: {}", local_repo.name, error_message);
+                } else if info_message != "Already up to date."
+                    && !info_message.contains("is up to date")
+                {
                     bar.finish_with_message(format!("{}: updated", local_repo.name));
                 }
             }
@@ -97,8 +89,6 @@ fn handle_new_pull(multi_progress: &MultiProgress, local_repo: LocalRepo) -> Joi
 }
 
 fn handle_new_clone(
-    user: String,
-    token: String,
     multi_progress: &MultiProgress,
     repo_root_dir: &PathBuf,
     github_team_prefix: &String,
@@ -107,8 +97,7 @@ fn handle_new_clone(
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
 
-    let spinner_style = ProgressStyle::with_template("{wide_msg}")
-        .unwrap();
+    let spinner_style = ProgressStyle::with_template("{wide_msg}").unwrap();
     let bar = multi_progress.add(ProgressBar::new(10));
     bar.set_style(spinner_style.clone());
     bar.set_message(format!("{}: waiting...", new_repo.name));
@@ -116,8 +105,6 @@ fn handle_new_clone(
     let handle = tokio::task::spawn_blocking(move || {
         bar.set_message(format!("{}: cloning...", new_repo.name));
         let _ = match git::git_clone(
-            user.clone(),
-            token.clone(),
             &new_repo.clone(),
             repo_root_dir_clone,
             github_team_prefix_clone,
@@ -139,7 +126,6 @@ async fn main() {
     let cli = parse_command_line_arguments();
 
     let repo_root_dir = cli.get_one::<PathBuf>("repo_root_dir").unwrap();
-    let user = cli.get_one::<String>("github_user").unwrap();
     let token = cli.get_one::<String>("github_token").unwrap();
     let github_team_repo_url = cli.get_one::<Url>("github_team_repo_url").unwrap();
     let github_team_prefix = cli.get_one::<String>("github_team_prefix").unwrap();
@@ -147,32 +133,26 @@ async fn main() {
     let local_repos = list_local_repos(&repo_root_dir);
 
     let multi_progress_bar = MultiProgress::new();
-
     let logger = SimpleLogger::new().with_level(log::LevelFilter::Info);
     LogWrapper::new(multi_progress_bar.clone(), logger)
         .try_init()
         .unwrap();
-
     let mut threads: Vec<JoinHandle<()>> = Vec::new();
     for local_repo in local_repos.clone() {
         threads.push(handle_new_pull(&multi_progress_bar, local_repo));
     }
-
     let github_team_repos =
         list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
     let new_repos = find_new_repos(&github_team_repos, &local_repos, &github_team_prefix);
 
     for new_repo in new_repos.clone() {
         threads.push(handle_new_clone(
-            user.clone(),
-            token.clone(),
             &multi_progress_bar,
             repo_root_dir,
             github_team_prefix,
             new_repo,
         ));
     }
-
     for thread in threads {
         let _ = thread.await;
     }
