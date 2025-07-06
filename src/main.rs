@@ -1,7 +1,6 @@
 use clap::Arg;
 use clap::value_parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use indicatif_log_bridge::LogWrapper;
 use reqwest::Url;
 use std::path::PathBuf;
 use std::str;
@@ -10,7 +9,6 @@ use crate::git::find_new_repos;
 use crate::git::list_github_team_repos;
 use git::{LocalRepo, RemoteRepo, list_local_repos};
 use log::error;
-use simple_logger::SimpleLogger;
 use tokio::task::JoinHandle;
 
 fn parse_command_line_arguments() -> clap::ArgMatches {
@@ -55,7 +53,10 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
         .get_matches()
 }
 
-fn handle_new_pull(multi_progress: &MultiProgress, local_repo: LocalRepo) -> JoinHandle<()> {
+fn handle_new_pull(
+    multi_progress: &MultiProgress,
+    local_repo: LocalRepo,
+) -> JoinHandle<Option<String>> {
     let spinner_style = ProgressStyle::with_template("{wide_msg}").unwrap();
     let bar = multi_progress.add(ProgressBar::new(10));
     bar.set_style(spinner_style.clone());
@@ -64,24 +65,21 @@ fn handle_new_pull(multi_progress: &MultiProgress, local_repo: LocalRepo) -> Joi
         bar.set_message(format!("{}: pulling...", local_repo.name));
         let _ = match git::git_pull(local_repo.clone()) {
             Err(message) => {
-                bar.finish_with_message(format!("{}: error", local_repo.name));
-                error!(
-                    "{}: {}",
-                    local_repo.name,
-                    format!("Pulling failed with message:{}", message)
-                );
+                bar.finish_with_message(format!("{}: updating failed", local_repo.name));
+                return Some(format!("{}: {}", local_repo.name, message));
             }
             Ok(output) => {
                 let error_message = str::from_utf8(output.stderr.trim_ascii()).unwrap();
                 let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
                 if !error_message.is_empty() {
-                    bar.finish_with_message(format!("{}: error", local_repo.name));
-                    error!("{}: {}", local_repo.name, error_message);
+                    bar.finish_with_message(format!("{}: updating failed", local_repo.name));
+                    return Some(format!("{}: {}", local_repo.name, error_message));
                 } else if info_message != "Already up to date."
                     && !info_message.contains("is up to date")
                 {
                     bar.finish_with_message(format!("{}: updated", local_repo.name));
                 }
+                return None;
             }
         };
     });
@@ -93,7 +91,7 @@ fn handle_new_clone(
     repo_root_dir: &PathBuf,
     github_team_prefix: &String,
     new_repo: RemoteRepo,
-) -> JoinHandle<()> {
+) -> JoinHandle<Option<String>> {
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
 
@@ -111,10 +109,11 @@ fn handle_new_clone(
         ) {
             Ok(_) => {
                 bar.finish_with_message(format!("{}: cloned", new_repo.name));
+                return None;
             }
             Err(message) => {
-                bar.finish_with_message(format!("{}: error", new_repo.name));
-                error!("{}: {}", new_repo.name, message);
+                bar.finish_with_message(format!("{}: cloing failed", new_repo.name));
+                return Some(format!("{}: {}", new_repo.name, message));
             }
         };
     });
@@ -133,14 +132,13 @@ async fn main() {
     let local_repos = list_local_repos(&repo_root_dir);
 
     let multi_progress_bar = MultiProgress::new();
-    let logger = SimpleLogger::new().with_level(log::LevelFilter::Info);
-    LogWrapper::new(multi_progress_bar.clone(), logger)
-        .try_init()
-        .unwrap();
-    let mut threads: Vec<JoinHandle<()>> = Vec::new();
+    simple_logger::init().unwrap();
+    let mut threads: Vec<JoinHandle<Option<String>>> = Vec::new();
+
     for local_repo in local_repos.clone() {
         threads.push(handle_new_pull(&multi_progress_bar, local_repo));
     }
+
     let github_team_repos =
         list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
     let new_repos = find_new_repos(&github_team_repos, &local_repos, &github_team_prefix);
@@ -153,7 +151,11 @@ async fn main() {
             new_repo,
         ));
     }
-    for thread in threads {
-        let _ = thread.await;
+
+    let results = futures::future::join_all(threads).await;
+    for result in results {
+        if let Ok(Some(message)) = result {
+            error!("{}", message);
+        }
     }
 }
