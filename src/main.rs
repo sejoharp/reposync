@@ -9,7 +9,7 @@ mod git;
 use crate::git::find_new_repos;
 use crate::git::list_github_team_repos;
 use git::{LocalRepo, RemoteRepo, list_local_repos};
-use log::{error, info};
+use log::error;
 use simple_logger::SimpleLogger;
 use tokio::task::JoinHandle;
 
@@ -64,16 +64,17 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
         .get_matches()
 }
 
-fn handle_pull(
-    pull_pb: &ProgressBar,
-    new_commits_pb: &ProgressBar,
-    local_repo: LocalRepo,
-) -> JoinHandle<()> {
-    let pull_pb_clone = pull_pb.clone();
-    let new_commits_pb_clone = new_commits_pb.clone();
+fn handle_new_pull(multi_progress: &MultiProgress, local_repo: LocalRepo) -> JoinHandle<()> {
+    let spinner_style =
+        ProgressStyle::with_template("{wide_msg}").unwrap();
+    let bar = multi_progress.add(ProgressBar::new(10));
+    bar.set_style(spinner_style.clone());
+    bar.set_message(format!("{}: waiting...", local_repo.name));
     let handle = tokio::task::spawn_blocking(move || {
+        bar.set_message(format!("{}: pulling...", local_repo.name));
         let _ = match git::git_pull(local_repo.clone()) {
             Err(message) => {
+                bar.finish_with_message(format!("{}: error", local_repo.name));
                 error!(
                     "{}: {}",
                     local_repo.name,
@@ -82,15 +83,12 @@ fn handle_pull(
             }
             Ok(output) => {
                 let error_message = str::from_utf8(output.stderr.trim_ascii()).unwrap();
-                if error_message != "" {
+                let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
+                if !error_message.is_empty() {
                     error!("{}: {}", local_repo.name, error_message);
-                } else {
-                    pull_pb_clone.inc(1);
-                    let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
-                    if info_message != "Already up to date." {
-                        new_commits_pb_clone.inc(1);
-                        info!("{}: {}", local_repo.name, "updated");
-                    }
+                    bar.finish_with_message(format!("{}: error", local_repo.name));
+                } else if info_message != "Already up to date." && !info_message.contains("is up to date") {
+                    bar.finish_with_message(format!("{}: updated", local_repo.name));
                 }
             }
         };
@@ -106,12 +104,17 @@ fn handle_new_clone(
     github_team_prefix: &String,
     new_repo: RemoteRepo,
 ) -> JoinHandle<()> {
-    let clone_pb_clone = clone_pb.clone();
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
 
+    let spinner_style = ProgressStyle::with_template("{wide_msg}")
+        .unwrap();
+    let bar = multi_progress.add(ProgressBar::new(10));
+    bar.set_style(spinner_style.clone());
+    bar.set_message(format!("{}: waiting...", new_repo.name));
+
     let handle = tokio::task::spawn_blocking(move || {
-        bar.set_message(format!("{}: cloning", new_repo.name));
+        bar.set_message(format!("{}: cloning...", new_repo.name));
         let _ = match git::git_clone(
             user.clone(),
             token.clone(),
@@ -173,8 +176,4 @@ async fn main() {
     for thread in threads {
         let _ = thread.await;
     }
-
-    pull_pb.finish_with_message("done");
-    clone_pb.finish_with_message("done");
-    new_commits_pb.finish_with_message("done");
 }
