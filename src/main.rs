@@ -1,145 +1,22 @@
 use clap::Arg;
 use clap::value_parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use reqwest::Client;
 use reqwest::Url;
-use reqwest::header::ACCEPT;
-use reqwest::header::USER_AGENT;
-use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::str;
-use std::{ffi::OsStr, fs, path::PathBuf, process::Command};
+mod git;
 use tokio::task::JoinHandle;
 
-fn is_git_repo(path: &String) -> bool {
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries {
-            match entry {
-                Ok(entry) => {
-                    if entry
-                        .path()
-                        .file_name()
-                        .is_some_and(|subdir| subdir.eq(OsStr::new(".git")))
-                    {
-                        return true;
-                    }
-                }
-                Err(_e) => (),
-            }
-        }
-    }
-    false
-}
+use crate::git::find_new_repos;
+use crate::git::list_github_team_repos;
 
-fn git_pull(local_repo: LocalRepo) -> Result<std::process::Output, std::io::Error> {
-    return Command::new("git")
-        .arg("pull")
-        .current_dir(local_repo.path)
-        .output();
-}
 
-fn git_clone(
-    remote_repo: &RemoteRepo,
-    repo_root_dir: PathBuf,
-    github_team_prefix: String,
-) -> Result<std::process::Output, std::io::Error> {
-    return Command::new("git")
-        .arg("clone")
-        .arg(remote_repo.git_url.clone())
-        .arg(remote_repo.name.replace(github_team_prefix.as_str(), ""))
-        .current_dir(repo_root_dir)
-        .output();
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct RemoteRepo {
-    name: String,
-    archived: bool,
-    git_url: String,
-}
-
-async fn get_repos(
-    client: &Client,
-    token: &String,
-    page: i32,
-    github_team_repo_url: &Url,
-) -> Option<Vec<RemoteRepo>> {
-    let repos = client
-        .get(github_team_repo_url.clone())
-        .header(ACCEPT, "application/vnd.github.v3+json")
-        .header(USER_AGENT, "reposync")
-        .bearer_auth(token)
-        .query(&[("per_page", "100"), ("page", page.to_string().as_str())])
-        .send()
-        .await
-        .ok()?
-        .json::<Vec<RemoteRepo>>()
-        .await
-        .ok()?;
-    if !repos.is_empty() {
-        return Some(repos);
-    }
-    return None;
-}
-
-async fn list_github_team_repos(
-    token: &String,
-    github_team_repo_url: &Url,
-    github_team_prefix: &String,
-) -> Vec<RemoteRepo> {
-    let client = Client::new();
-    let mut repos: Vec<RemoteRepo> = Vec::new();
-    let mut page = 1;
-    while let Some(page_repos) = get_repos(&client, &token, page, github_team_repo_url).await {
-        repos.extend(page_repos);
-        page += 1;
-    }
-    return repos
-        .into_iter()
-        .filter(|repo| !repo.archived)
-        .filter(|repo| repo.name.starts_with(github_team_prefix.as_str()))
-        .collect::<Vec<RemoteRepo>>();
-}
 
 struct GitMessage {
     name: String,
     message: String,
 }
-
-#[derive(Debug, Clone)]
-struct LocalRepo {
-    name: String,
-    path: PathBuf,
-}
-
-fn list_local_repos(path: &PathBuf) -> Vec<LocalRepo> {
-    let mut repos: Vec<LocalRepo> = Vec::new();
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries {
-            if let Ok(subdir) = entry {
-                if is_git_repo(&subdir.path().to_string_lossy().to_string()) {
-                    repos.push(LocalRepo {
-                        name: subdir.file_name().into_string().unwrap(),
-                        path: subdir.path(),
-                    });
-                }
-            }
-        }
-    }
-    repos
-}
-
-fn is_known_repo(
-    remote_repo: &RemoteRepo,
-    local_repos: &Vec<LocalRepo>,
-    github_team_prefix: &String,
-) -> bool {
-    for local_repo in local_repos {
-        if local_repo.name == remote_repo.name.replace(github_team_prefix.as_str(), "") {
-            return true;
-        }
-    }
-    return false;
-}
+use git::{LocalRepo, RemoteRepo, list_local_repos};
 
 fn parse_command_line_arguments() -> clap::ArgMatches {
     clap::Command::new("reposync")
@@ -191,7 +68,7 @@ fn handle_pull(
     let pull_pb_clone = pull_pb.clone();
     let new_commits_pb_clone = new_commits_pb.clone();
     let handle = tokio::task::spawn_blocking(move || {
-        let _ = match git_pull(local_repo.clone()) {
+        let _ = match git::git_pull(local_repo.clone()) {
             Err(message) => {
                 return Err(GitMessage {
                     name: local_repo.name,
@@ -238,7 +115,7 @@ fn handle_clone(
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
     let handle = tokio::task::spawn_blocking(move || {
-        let _ = git_clone(
+        let _ = git::git_clone(
             &new_repo.clone(),
             repo_root_dir_clone,
             github_team_prefix_clone,
@@ -268,7 +145,7 @@ fn create_progressbar(
     return clone_pb;
 }
 
-fn print_git_message(messages: Vec<GitMessage>, title_prefix: String) {
+fn print_git_message_with_separator(messages: Vec<GitMessage>, title_prefix: String) {
     for message in messages {
         if message.message.is_empty() {
             continue;
@@ -280,17 +157,13 @@ fn print_git_message(messages: Vec<GitMessage>, title_prefix: String) {
         println!("{}", message.message);
     }
 }
-
-fn find_new_repos(
-    remote_repos: &Vec<RemoteRepo>,
-    local_repos: &Vec<LocalRepo>,
-    github_team_prefix: &String,
-) -> Vec<RemoteRepo> {
-    remote_repos
-        .iter()
-        .filter(|repo| !is_known_repo(repo, local_repos, github_team_prefix))
-        .cloned()
-        .collect()
+fn print_git_message(messages: Vec<GitMessage>) {
+    for message in messages {
+        if message.message.is_empty() {
+            continue;
+        }
+        println!("{} {}", message.name, message.message);
+    }
 }
 
 #[tokio::main]
@@ -349,6 +222,6 @@ async fn main() {
     clone_pb.finish_with_message("done");
     new_commits_pb.finish_with_message("done");
 
-    print_git_message(error_messages, "ERROR in".to_string());
-    print_git_message(ok_messages, "Info for".to_string());
+    print_git_message(ok_messages);
+    print_git_message_with_separator(error_messages, "ERROR in".to_string());
 }
