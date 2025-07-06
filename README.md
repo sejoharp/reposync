@@ -50,6 +50,10 @@ make install
 export GITHUB_TEAM_REPO_URL=https://api.github.com/organizations/[org-id]/team/[team-id]/repos
 export REPO_ROOT_DIR=[dir/to/repo/root]
 export GITHUB_TEAM_PREFIX=team_
+# needed to clone and pull repos via https
+export GITHUB_TOKEN=ghp_56789
+# needed to clone repos via https
+export GITHUB_USER=mygithubuser
 ```
 
 # Development

@@ -19,7 +19,7 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
         .version(env!("CARGO_PKG_VERSION"))
         .arg(
             Arg::new("github_team_repo_url")
-                .short('u')
+                .short('g')
                 .long("github_team_repo_url")
                 .env("GITHUB_TEAM_REPO_URL")
                 .required(true)
@@ -43,6 +43,15 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
                 .required(true)
                 .hide_env_values(true)
                 .help("Github token with permissions to list all team repos."),
+        )
+        .arg(
+            Arg::new("github_user")
+                .short('u')
+                .long("github_user")
+                .env("GITHUB_USER")
+                .required(true)
+                .hide_env_values(true)
+                .help("Github user with permissions to list all team repos."),
         )
         .arg(
             Arg::new("github_team_prefix")
@@ -89,8 +98,10 @@ fn handle_pull(
     return handle;
 }
 
-fn handle_clone(
-    clone_pb: &ProgressBar,
+fn handle_new_clone(
+    user: String,
+    token: String,
+    multi_progress: &MultiProgress,
     repo_root_dir: &PathBuf,
     github_team_prefix: &String,
     new_repo: RemoteRepo,
@@ -98,32 +109,26 @@ fn handle_clone(
     let clone_pb_clone = clone_pb.clone();
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
+
     let handle = tokio::task::spawn_blocking(move || {
-        let _ = git::git_clone(
+        bar.set_message(format!("{}: cloning", new_repo.name));
+        let _ = match git::git_clone(
+            user.clone(),
+            token.clone(),
             &new_repo.clone(),
             repo_root_dir_clone,
             github_team_prefix_clone,
-        );
-        clone_pb_clone.inc(1);
-        info!("{} cloned", new_repo.name);
+        ) {
+            Ok(_) => {
+                bar.finish_with_message(format!("{}: cloned", new_repo.name));
+            }
+            Err(message) => {
+                bar.finish_with_message(format!("{}: error", new_repo.name));
+                error!("{}: {}", new_repo.name, message);
+            }
+        };
     });
     return handle;
-}
-
-fn create_progressbar(
-    multi_progress_bar: &MultiProgress,
-    size: usize,
-    bar_prefix: String,
-) -> ProgressBar {
-    let style_clone = ProgressStyle::with_template(&format!(
-        "{}: {{bar:40.cyan/blue}} {{pos:>7}}/{{len:7}} {{msg}}",
-        bar_prefix
-    ))
-    .unwrap()
-    .progress_chars("##-");
-    let clone_pb = multi_progress_bar.add(ProgressBar::new(size as u64));
-    clone_pb.set_style(style_clone);
-    return clone_pb;
 }
 
 #[tokio::main]
@@ -131,6 +136,7 @@ async fn main() {
     let cli = parse_command_line_arguments();
 
     let repo_root_dir = cli.get_one::<PathBuf>("repo_root_dir").unwrap();
+    let user = cli.get_one::<String>("github_user").unwrap();
     let token = cli.get_one::<String>("github_token").unwrap();
     let github_team_repo_url = cli.get_one::<Url>("github_team_repo_url").unwrap();
     let github_team_prefix = cli.get_one::<String>("github_team_prefix").unwrap();
@@ -139,32 +145,25 @@ async fn main() {
 
     let multi_progress_bar = MultiProgress::new();
 
-    let logger = SimpleLogger::new().with_level(log::LevelFilter::Warn);
+    let logger = SimpleLogger::new().with_level(log::LevelFilter::Info);
     LogWrapper::new(multi_progress_bar.clone(), logger)
         .try_init()
         .unwrap();
 
-
     let mut threads: Vec<JoinHandle<()>> = Vec::new();
-
-    let pull_pb = create_progressbar(
-        &multi_progress_bar,
-        local_repos.len(),
-        "pulling ".to_string(),
-    );
-    let new_commits_pb = create_progressbar(&multi_progress_bar, 0, "Updating".to_string());
     for local_repo in local_repos.clone() {
-        threads.push(handle_pull(&pull_pb, &new_commits_pb, local_repo));
+        threads.push(handle_new_pull(&multi_progress_bar, local_repo));
     }
 
     let github_team_repos =
         list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
     let new_repos = find_new_repos(&github_team_repos, &local_repos, &github_team_prefix);
 
-    let clone_pb = create_progressbar(&multi_progress_bar, new_repos.len(), "cloning ".to_string());
     for new_repo in new_repos.clone() {
-        threads.push(handle_clone(
-            &clone_pb,
+        threads.push(handle_new_clone(
+            user.clone(),
+            token.clone(),
+            &multi_progress_bar,
             repo_root_dir,
             github_team_prefix,
             new_repo,

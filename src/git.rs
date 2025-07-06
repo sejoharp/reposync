@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::{path::PathBuf, process::Command};
 
+use log::info;
 use reqwest::Client;
 use reqwest::Url;
 use reqwest::header::ACCEPT;
@@ -18,18 +19,28 @@ pub struct LocalRepo {
 pub struct RemoteRepo {
     pub name: String,
     pub archived: bool,
-    pub git_url: String,
+    pub clone_url: String,
 }
 
 pub fn git_clone(
+    user: String,
+    token: String,
     remote_repo: &RemoteRepo,
     repo_root_dir: PathBuf,
     github_team_prefix: String,
 ) -> Result<std::process::Output, std::io::Error> {
+    info!(
+        "Cloning repository: {:?} into {:?} with prefix {}",
+        remote_repo, repo_root_dir, github_team_prefix
+    );
+    let clone_with_credentials = remote_repo
+        .clone_url
+        .replace("https://", format!("https://{}:{}@", user, token).as_str());
+    let dir_without_prefix = remote_repo.name.replace(github_team_prefix.as_str(), "");
     return Command::new("git")
         .arg("clone")
-        .arg(remote_repo.git_url.clone())
-        .arg(remote_repo.name.replace(github_team_prefix.as_str(), ""))
+        .arg(clone_with_credentials)
+        .arg(dir_without_prefix)
         .current_dir(repo_root_dir)
         .output();
 }
