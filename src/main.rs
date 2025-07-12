@@ -76,6 +76,7 @@ fn handle_new_pull(
                     return Some(format!("{}: {}", local_repo.name, error_message));
                 } else if info_message != "Already up to date."
                     && !info_message.contains("is up to date")
+                    && !info_message.contains("..")
                 {
                     bar.finish_with_message(format!("{}: updated", local_repo.name));
                 }
@@ -141,7 +142,6 @@ async fn main() {
     for local_repo in local_repos.clone() {
         threads.push(handle_new_pull(&multi_progress_bar, local_repo));
     }
-
 
     for new_repo in new_repos.clone() {
         threads.push(handle_new_clone(
