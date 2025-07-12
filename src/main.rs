@@ -1,14 +1,10 @@
 use clap::Arg;
 use clap::value_parser;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use reqwest::Url;
 use std::path::PathBuf;
 use std::str;
 mod git;
-use crate::git::find_new_repos;
-use crate::git::list_github_team_repos;
 use git::{LocalRepo, RemoteRepo, list_local_repos};
-use log::error;
 use tokio::task::JoinHandle;
 
 fn parse_command_line_arguments() -> clap::ArgMatches {
@@ -53,34 +49,56 @@ fn parse_command_line_arguments() -> clap::ArgMatches {
         .get_matches()
 }
 
-fn handle_new_pull(
-    multi_progress: &MultiProgress,
-    local_repo: LocalRepo,
-) -> JoinHandle<Option<String>> {
-    let spinner_style = ProgressStyle::with_template("{wide_msg}").unwrap();
-    let bar = multi_progress.add(ProgressBar::new(10));
-    bar.set_style(spinner_style.clone());
-    bar.set_message(format!("{}: waiting...", local_repo.name));
+#[derive(Debug)]
+enum State {
+    CloneError,
+    PullError,
+    Updated,
+    Cloned,
+    PullNoOp,
+}
+
+#[derive(Debug)]
+struct GitResponse {
+    name: String,
+    message: String,
+    state: State,
+}
+fn handle_new_pull(local_repo: LocalRepo) -> JoinHandle<GitResponse> {
     let handle = tokio::task::spawn_blocking(move || {
-        bar.set_message(format!("{}: pulling...", local_repo.name));
-        let _ = match git::git_pull(local_repo.clone()) {
+        let response = git::git_pull(local_repo.clone());
+        let _ = match response {
             Err(message) => {
-                bar.finish_with_message(format!("{}: updating failed", local_repo.name));
-                return Some(format!("{}: {}", local_repo.name, message));
+                return GitResponse {
+                    name: local_repo.name,
+                    message: message.to_string(),
+                    state: State::PullError,
+                };
             }
             Ok(output) => {
                 let error_message = str::from_utf8(output.stderr.trim_ascii()).unwrap();
                 let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
                 if !error_message.is_empty() {
-                    bar.finish_with_message(format!("{}: updating failed", local_repo.name));
-                    return Some(format!("{}: {}", local_repo.name, error_message));
+                    return GitResponse {
+                        name: local_repo.name,
+                        message: error_message.to_string(),
+                        state: State::PullError,
+                    };
                 } else if info_message != "Already up to date."
                     && !info_message.contains("is up to date")
                     && !info_message.contains("..")
                 {
-                    bar.finish_with_message(format!("{}: updated", local_repo.name));
+                    return GitResponse {
+                        name: local_repo.name,
+                        message: info_message.to_string(),
+                        state: State::Updated,
+                    };
                 }
-                return None;
+                return GitResponse {
+                    name: local_repo.name,
+                    message: "".into(),
+                    state: State::PullNoOp,
+                };
             }
         };
     });
@@ -88,33 +106,32 @@ fn handle_new_pull(
 }
 
 fn handle_new_clone(
-    multi_progress: &MultiProgress,
     repo_root_dir: &PathBuf,
     github_team_prefix: &String,
     new_repo: RemoteRepo,
-) -> JoinHandle<Option<String>> {
+) -> JoinHandle<GitResponse> {
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
 
-    let spinner_style = ProgressStyle::with_template("{wide_msg}").unwrap();
-    let bar = multi_progress.add(ProgressBar::new(10));
-    bar.set_style(spinner_style.clone());
-    bar.set_message(format!("{}: waiting...", new_repo.name));
-
     let handle = tokio::task::spawn_blocking(move || {
-        bar.set_message(format!("{}: cloning...", new_repo.name));
         let _ = match git::git_clone(
             &new_repo.clone(),
             repo_root_dir_clone,
             github_team_prefix_clone,
         ) {
             Ok(_) => {
-                bar.finish_with_message(format!("{}: cloned", new_repo.name));
-                return None;
+                return GitResponse {
+                    name: new_repo.name,
+                    message: "".into(),
+                    state: State::Cloned,
+                };
             }
             Err(message) => {
-                bar.finish_with_message(format!("{}: cloing failed", new_repo.name));
-                return Some(format!("{}: {}", new_repo.name, message));
+                return GitResponse {
+                    name: new_repo.name,
+                    message: message.to_string(),
+                    state: State::CloneError,
+                };
             }
         };
     });
@@ -130,32 +147,79 @@ async fn main() {
     let github_team_repo_url = cli.get_one::<Url>("github_team_repo_url").unwrap();
     let github_team_prefix = cli.get_one::<String>("github_team_prefix").unwrap();
 
+    let mut threads: Vec<JoinHandle<GitResponse>> = Vec::new();
+
     let local_repos = list_local_repos(&repo_root_dir);
-    let github_team_repos =
-        list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
-    let new_repos = find_new_repos(&github_team_repos, &local_repos, &github_team_prefix);
-
-    let multi_progress_bar = MultiProgress::new();
-    simple_logger::init().unwrap();
-    let mut threads: Vec<JoinHandle<Option<String>>> = Vec::new();
-
     for local_repo in local_repos.clone() {
-        threads.push(handle_new_pull(&multi_progress_bar, local_repo));
+        threads.push(handle_new_pull(local_repo));
     }
 
+    let remote_repos = git::get_all_repos(token, github_team_prefix, github_team_repo_url).await;
+    let github_active_team_repos = git::list_active_github_team_repos(remote_repos.clone()).await;
+    let new_repos =
+        git::find_new_repos(&github_active_team_repos, &local_repos, &github_team_prefix);
     for new_repo in new_repos.clone() {
         threads.push(handle_new_clone(
-            &multi_progress_bar,
             repo_root_dir,
             github_team_prefix,
             new_repo,
         ));
     }
 
-    let results = futures::future::join_all(threads).await;
-    for result in results {
-        if let Ok(Some(message)) = result {
-            error!("{}", message);
+    let github_archived_team_repos =
+        git::list_archived_github_team_repos(remote_repos.clone()).await;
+    let archived_repos = git::find_archived_local_repos(
+        &github_archived_team_repos,
+        &local_repos,
+        &github_team_prefix,
+    );
+
+    let mut pull_errors: Vec<GitResponse> = Vec::new();
+    let mut pull_noop: Vec<GitResponse> = Vec::new();
+    let mut updated: Vec<GitResponse> = Vec::new();
+    let mut cloned: Vec<GitResponse> = Vec::new();
+    let mut clone_errors: Vec<GitResponse> = Vec::new();
+    for thread in threads {
+        let thread_result = thread.await.unwrap();
+        match thread_result.state {
+            State::CloneError => {
+                clone_errors.push(thread_result);
+            }
+            State::Cloned => {
+                cloned.push(thread_result);
+            }
+            State::PullError => {
+                pull_errors.push(thread_result);
+            }
+            State::PullNoOp => {
+                pull_noop.push(thread_result);
+            }
+            State::Updated => {
+                updated.push(thread_result);
+            }
+        };
+    }
+
+    println!("\x1b[32mPull no-op count\x1b[0m: {}", pull_noop.iter().count());
+    for updated_repo in updated {
+        println!("\x1b[33m{}\x1b[0m: updated", updated_repo.name);
+    }
+    for cloned_repo in cloned {
+        println!("\x1b[33m{}\x1b[0m: cloned", cloned_repo.name);
+    }
+    for archived_repo in archived_repos {
+        println!("\x1b[33m{}\x1b[0m: archived", archived_repo.name);
+    }
+    for clone_error in clone_errors {
+        println!("\x1b[31m{}\x1b[0m: failed to clone:", clone_error.name);
+        for line in clone_error.message.lines() {
+            println!("  {}", line);
+        }
+    }
+    for pull_error in pull_errors {
+        println!("\x1b[31m{}\x1b[0m: failed to pull:", pull_error.name);
+        for line in pull_error.message.lines() {
+            println!("  {}", line);
         }
     }
 }

@@ -1,10 +1,10 @@
 [package]
 name = "reposync"
-version = "0.1.0"
+version = "72.0.0"
 edition = "2024"
 
 [dependencies]
-reqwest = { version = "0.12", features = [
+reqwest = { version = "0.*", features = [
     "json",
     "blocking",
     "rustls-tls",
@@ -12,8 +12,4 @@ reqwest = { version = "0.12", features = [
 tokio = { version = "1", features = ["full"] }
 serde_json = "1.0"
 serde = { version = "1.*", features = ["derive"] }
-clap = { version = "4.5.40", features = ["env"] }
-indicatif = "0.17.11"
-log = "0.4.27"
-simple_logger = "5.0.0"
-futures = "0.3.31"
+clap = { version = "4.5.*", features = ["env"] }
