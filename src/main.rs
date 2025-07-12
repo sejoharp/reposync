@@ -130,6 +130,9 @@ async fn main() {
     let github_team_prefix = cli.get_one::<String>("github_team_prefix").unwrap();
 
     let local_repos = list_local_repos(&repo_root_dir);
+    let github_team_repos =
+        list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
+    let new_repos = find_new_repos(&github_team_repos, &local_repos, &github_team_prefix);
 
     let multi_progress_bar = MultiProgress::new();
     simple_logger::init().unwrap();
@@ -139,9 +142,6 @@ async fn main() {
         threads.push(handle_new_pull(&multi_progress_bar, local_repo));
     }
 
-    let github_team_repos =
-        list_github_team_repos(&token, &github_team_repo_url, &github_team_prefix).await;
-    let new_repos = find_new_repos(&github_team_repos, &local_repos, &github_team_prefix);
 
     for new_repo in new_repos.clone() {
         threads.push(handle_new_clone(
