@@ -195,22 +195,19 @@ async fn main() {
     let mut cloned: Vec<GitResponse> = Vec::new();
     let mut clone_errors: Vec<GitResponse> = Vec::new();
     for pull_thread in pull_threads {
-        let thread_result = pull_thread.await.unwrap();
-        match thread_result.state {
-            State::CloneError => {
-                clone_errors.push(thread_result);
-            }
-            State::Cloned => {
-                cloned.push(thread_result);
-            }
+        let pull_result = pull_thread.await.unwrap();
+        match pull_result.state {
             State::PullError => {
-                pull_errors.push(thread_result);
+                pull_errors.push(pull_result);
             }
             State::PullNoOp => {
-                pull_noop.push(thread_result);
+                pull_noop.push(pull_result);
             }
             State::Updated => {
-                updated.push(thread_result);
+                updated.push(pull_result);
+            }
+             _ => {
+                panic!("Unexpected state in pull thread: {:?}", pull_result);
             }
         };
     }
@@ -218,22 +215,16 @@ async fn main() {
     pull_progress_bar.finish_and_clear();
 
     for clone_thread in clone_threads {
-        let thread_result = clone_thread.await.unwrap();
-        match thread_result.state {
+        let clone_result = clone_thread.await.unwrap();
+        match clone_result.state {
             State::CloneError => {
-                clone_errors.push(thread_result);
+                clone_errors.push(clone_result);
             }
             State::Cloned => {
-                cloned.push(thread_result);
+                cloned.push(clone_result);
             }
-            State::PullError => {
-                pull_errors.push(thread_result);
-            }
-            State::PullNoOp => {
-                pull_noop.push(thread_result);
-            }
-            State::Updated => {
-                updated.push(thread_result);
+            _ => {
+                panic!("Unexpected state in clone thread: {:?}", clone_result);
             }
         };
     }
