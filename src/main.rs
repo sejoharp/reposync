@@ -214,7 +214,7 @@ async fn main() {
             }
         };
     }
-    clone_progress_bar.set_message("pulling finished");
+    pull_progress_bar.set_message("pulling finished");
     pull_progress_bar.finish_and_clear();
 
     for clone_thread in clone_threads {
