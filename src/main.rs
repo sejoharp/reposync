@@ -1,5 +1,8 @@
 use clap::Arg;
 use clap::value_parser;
+use indicatif::MultiProgress;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use reqwest::Url;
 use std::path::PathBuf;
 use std::str;
@@ -147,19 +150,31 @@ async fn main() {
     let github_team_repo_url = cli.get_one::<Url>("github_team_repo_url").unwrap();
     let github_team_prefix = cli.get_one::<String>("github_team_prefix").unwrap();
 
-    let mut threads: Vec<JoinHandle<GitResponse>> = Vec::new();
+    let multi_progress_bar = MultiProgress::new();
+    let spinner_style = ProgressStyle::with_template("{wide_msg}").unwrap();
+    let pull_progress_bar = multi_progress_bar.add(ProgressBar::no_length());
+    pull_progress_bar.set_style(spinner_style.clone());
+    let clone_progress_bar = multi_progress_bar.add(ProgressBar::no_length());
+    clone_progress_bar.set_style(spinner_style.clone());
 
+    let mut clone_threads: Vec<JoinHandle<GitResponse>> = Vec::new();
+    let mut pull_threads: Vec<JoinHandle<GitResponse>> = Vec::new();
+
+    pull_progress_bar.set_message(format!("gathering local repos..."));
     let local_repos = list_local_repos(&repo_root_dir);
+    pull_progress_bar.set_message(format!("pulling repos..."));
     for local_repo in local_repos.clone() {
-        threads.push(handle_new_pull(local_repo));
+        pull_threads.push(handle_new_pull(local_repo));
     }
 
+    clone_progress_bar.set_message("gathering team repos...");
     let remote_repos = git::get_all_repos(token, github_team_prefix, github_team_repo_url).await;
     let github_active_team_repos = git::list_active_github_team_repos(remote_repos.clone()).await;
     let new_repos =
         git::find_new_repos(&github_active_team_repos, &local_repos, &github_team_prefix);
+    clone_progress_bar.set_message("cloning team repos...");
     for new_repo in new_repos.clone() {
-        threads.push(handle_new_clone(
+        clone_threads.push(handle_new_clone(
             repo_root_dir,
             github_team_prefix,
             new_repo,
@@ -179,8 +194,8 @@ async fn main() {
     let mut updated: Vec<GitResponse> = Vec::new();
     let mut cloned: Vec<GitResponse> = Vec::new();
     let mut clone_errors: Vec<GitResponse> = Vec::new();
-    for thread in threads {
-        let thread_result = thread.await.unwrap();
+    for pull_thread in pull_threads {
+        let thread_result = pull_thread.await.unwrap();
         match thread_result.state {
             State::CloneError => {
                 clone_errors.push(thread_result);
@@ -199,8 +214,36 @@ async fn main() {
             }
         };
     }
+    clone_progress_bar.set_message("pulling finished");
+    pull_progress_bar.finish_and_clear();
 
-    println!("\x1b[32mPull no-op count\x1b[0m: {}", pull_noop.iter().count());
+    for clone_thread in clone_threads {
+        let thread_result = clone_thread.await.unwrap();
+        match thread_result.state {
+            State::CloneError => {
+                clone_errors.push(thread_result);
+            }
+            State::Cloned => {
+                cloned.push(thread_result);
+            }
+            State::PullError => {
+                pull_errors.push(thread_result);
+            }
+            State::PullNoOp => {
+                pull_noop.push(thread_result);
+            }
+            State::Updated => {
+                updated.push(thread_result);
+            }
+        };
+    }
+    clone_progress_bar.set_message("cloning finished");
+    clone_progress_bar.finish_and_clear();
+
+    println!(
+        "\x1b[32mPull no-op count\x1b[0m: {}",
+        pull_noop.iter().count()
+    );
     for updated_repo in updated {
         println!("\x1b[33m{}\x1b[0m: updated", updated_repo.name);
     }
