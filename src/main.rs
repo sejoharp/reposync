@@ -89,7 +89,7 @@ fn handle_new_pull(local_repo: LocalRepo) -> JoinHandle<GitResponse> {
                     };
                 } else if info_message != "Already up to date."
                     && !info_message.contains("is up to date")
-                    && !info_message.contains("..")
+                    && !info_message.contains("[new tag]")
                 {
                     return GitResponse {
                         name: local_repo.name,
