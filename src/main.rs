@@ -67,9 +67,10 @@ struct GitResponse {
     message: String,
     state: State,
 }
-fn handle_new_pull(local_repo: LocalRepo) -> JoinHandle<GitResponse> {
+fn handle_new_pull(local_repo: LocalRepo, progress_bar: ProgressBar) -> JoinHandle<GitResponse> {
     let handle = tokio::task::spawn_blocking(move || {
         let response = git::git_pull(local_repo.clone());
+        progress_bar.inc(1);
         let _ = match response {
             Err(message) => {
                 return GitResponse {
@@ -112,16 +113,19 @@ fn handle_new_clone(
     repo_root_dir: &PathBuf,
     github_team_prefix: &String,
     new_repo: RemoteRepo,
+    progress_bar: ProgressBar,
 ) -> JoinHandle<GitResponse> {
     let repo_root_dir_clone = repo_root_dir.clone();
     let github_team_prefix_clone = github_team_prefix.clone();
 
     let handle = tokio::task::spawn_blocking(move || {
-        let _ = match git::git_clone(
+        let result = git::git_clone(
             &new_repo.clone(),
             repo_root_dir_clone,
             github_team_prefix_clone,
-        ) {
+        );
+        progress_bar.inc(1);
+        let _ = match result {
             Ok(_) => {
                 return GitResponse {
                     name: new_repo.name,
@@ -151,33 +155,37 @@ async fn main() {
     let github_team_prefix = cli.get_one::<String>("github_team_prefix").unwrap();
 
     let multi_progress_bar = MultiProgress::new();
-    let spinner_style = ProgressStyle::with_template("{wide_msg}").unwrap();
-    let pull_progress_bar = multi_progress_bar.add(ProgressBar::no_length());
-    pull_progress_bar.set_style(spinner_style.clone());
-    let clone_progress_bar = multi_progress_bar.add(ProgressBar::no_length());
-    clone_progress_bar.set_style(spinner_style.clone());
+    let spinner_style =
+        ProgressStyle::with_template("{prefix:.bold.dim} {pos:>7}/{len:7}").unwrap();
 
     let mut clone_threads: Vec<JoinHandle<GitResponse>> = Vec::new();
     let mut pull_threads: Vec<JoinHandle<GitResponse>> = Vec::new();
 
-    pull_progress_bar.set_message(format!("gathering local repos..."));
+    let pull_progress_bar = multi_progress_bar.add(ProgressBar::no_length());
+    pull_progress_bar.set_style(spinner_style.clone());
+    pull_progress_bar.set_prefix(format!("gathering local repos..."));
     let local_repos = list_local_repos(&repo_root_dir);
-    pull_progress_bar.set_message(format!("pulling repos..."));
+    pull_progress_bar.set_prefix(format!("pulling repos..."));
+    pull_progress_bar.set_length(local_repos.len() as u64);
     for local_repo in local_repos.clone() {
-        pull_threads.push(handle_new_pull(local_repo));
+        pull_threads.push(handle_new_pull(local_repo, pull_progress_bar.clone()));
     }
 
-    clone_progress_bar.set_message("looking for new team repos...");
+    let clone_progress_bar = multi_progress_bar.add(ProgressBar::no_length());
+    clone_progress_bar.set_style(spinner_style.clone());
+    clone_progress_bar.set_prefix("looking for new team repos...");
     let remote_repos = git::get_all_repos(token, github_team_prefix, github_team_repo_url).await;
     let github_active_team_repos = git::list_active_github_team_repos(remote_repos.clone()).await;
     let new_repos =
         git::find_new_repos(&github_active_team_repos, &local_repos, &github_team_prefix);
-    clone_progress_bar.set_message("cloning team repos...");
+    clone_progress_bar.set_prefix("cloning team repos...");
+    clone_progress_bar.set_length(new_repos.len() as u64);
     for new_repo in new_repos.clone() {
         clone_threads.push(handle_new_clone(
             repo_root_dir,
             github_team_prefix,
             new_repo,
+            clone_progress_bar.clone(),
         ));
     }
 
@@ -206,7 +214,7 @@ async fn main() {
             State::Updated => {
                 updated.push(pull_result);
             }
-             _ => {
+            _ => {
                 panic!("Unexpected state in pull thread: {:?}", pull_result);
             }
         };
