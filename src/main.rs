@@ -167,7 +167,7 @@ async fn main() {
         pull_threads.push(handle_new_pull(local_repo));
     }
 
-    clone_progress_bar.set_message("gathering team repos...");
+    clone_progress_bar.set_message("looking for new team repos...");
     let remote_repos = git::get_all_repos(token, github_team_prefix, github_team_repo_url).await;
     let github_active_team_repos = git::list_active_github_team_repos(remote_repos.clone()).await;
     let new_repos =
