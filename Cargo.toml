@@ -16,5 +16,5 @@ clap = { version = "4.5.*", features = ["env"] }
 indicatif = "0.*"
 
 [profile.release]
-strip = true  # Automatically strip symbols from the binary.
+strip = true
 lto = true
