@@ -82,7 +82,14 @@ fn handle_new_pull(local_repo: LocalRepo, progress_bar: ProgressBar) -> JoinHand
             Ok(output) => {
                 let error_message = str::from_utf8(output.stderr.trim_ascii()).unwrap();
                 let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
-                if !error_message.is_empty() {
+                //TODO: change order of checks: Check Updated andPullNoOp first. Everything else is PullError. Problem: I don't know what to check.
+                if (!error_message.is_empty()
+                    && !error_message.contains("Successfully rebased and updated refs/heads/main."))
+                    || info_message.contains("Applying autostash resulted in conflicts.")
+                    || info_message
+                        .contains("Pulling is not possible because you have unmerged files.")
+                    || info_message.contains(" Repository not found.")
+                {
                     return GitResponse {
                         name: local_repo.name,
                         message: error_message.to_string(),
