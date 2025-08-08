@@ -12,8 +12,8 @@ test: ## executes tests
 build: ## builds binary with debug infos
 	cargo build
 
-.PHONY:version_update
-version_update: ## updates version in Cargo.toml
+.PHONY:version-update
+version-update: ## updates version in Cargo.toml
 	scripts/bump-version.sh patch
 
 .PHONY:release
