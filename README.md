@@ -3,6 +3,8 @@
 - [Installation](#installation)
   - [install release](#install-release)
   - [install from source](#install-from-source)
+  - [install local with nix](#install-local-with-nix)
+  - [install via nix home-manager](#install-via-nix-home-manager)
   - [set config](#set-config)
 - [Development](#development)
   - [create a release](#create-a-release)
@@ -25,7 +27,7 @@ reposync
 
 ## install release
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/sejoharp/reposync/refs/heads/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/sejoharp/reposync/refs/heads/main/scripts/install.sh)"
 ```
 
 ## install from source
@@ -35,6 +37,32 @@ brew install rustup-init
 
 # build and install reposync
 make install
+```
+
+## install local with nix
+```shell
+nix build
+```
+
+## install via nix home-manager
+add this as input:
+```nix
+    reposyncpkg = {
+      url = "github:sejoharp/reposync";
+    };
+```
+```bash
+# move to home-manager config. e.g.:
+cd ~/.config/home-manager
+
+# optional: update index
+nix flake lock --update-input reposyncpkg
+
+# build generation
+nh home build .
+
+# switch generation
+nh home switch .
 ```
 
 ## set config
