@@ -79,10 +79,20 @@ export GITHUB_TOKEN=ghp_56789
 # Development
 
 ## create a release
-1. make a commit 
-2. push it
-3. github actions will create a release
+```bash
+# bump version (patch by default)
+make version-update
 
+# create a git commit
+git add ...
+git commit ...
+
+# tag the commit
+make tag-release
+
+# push commit and tag
+make push-release
+```
 # benchmarks
 ## single threaded
 cargo run  3.21s user 4.07s system 6% cpu 1:51.83 total
