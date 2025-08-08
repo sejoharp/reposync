@@ -45,18 +45,20 @@ nix build
 ```
 
 ## install via nix home-manager
-add this as input:
-```nix
-    reposyncpkg = {
-      url = "github:sejoharp/reposync";
-    };
-```
 ```bash
 # move to home-manager config. e.g.:
 cd ~/.config/home-manager
 
+# add this as input;
+    reposyncpkg = {
+      url = "github:sejoharp/reposync";
+    };
+
 # optional: update index
 nix flake lock --update-input reposyncpkg
+
+# add this to packages:
+inputs.reposyncpkg.packages.${pkgs.stdenv.system}.default
 
 # build generation
 nh home build .
@@ -64,6 +66,7 @@ nh home build .
 # switch generation
 nh home switch .
 ```
+
 
 ## set config
 ```bash
