@@ -12,13 +12,13 @@ test: ## executes tests
 build: ## builds binary with debug infos
 	cargo build
 
-.PHONY:version-update
-version-update: ## updates version in Cargo.toml
-	scripts/bump-version.sh patch
-
-.PHONY:version-update-minor
-version-update-minor: ## updates minor version in Cargo.toml
+.PHONY:bump-version-minor
+bump-version-minor: ## updates minor version in Cargo.toml
 	scripts/bump-version.sh minor
+
+.PHONY:bump-version-patch
+bump-version-patch: ## updates patch version in Cargo.toml
+	scripts/bump-version.sh patch
 
 .PHONY:release
 release: ## builds release binary
@@ -34,19 +34,30 @@ help: ## shows help message
 
 .PHONY: tag-release
 tag-release: ## tags the current release commit
-	git tag v$(shell cargo pkgid | cut -d# -f2 | cut -d: -f2)
+	git tag "v$$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')"
 
 .PHONY: push-release
 push-release: ## pushes current branch and release tags
 	git push
 	git push --tags
 
-.PHONY: create-release
-create-release: ## bumps minor version, builds, commits, tags, and pushes
-	$(MAKE) version-update-minor
+.PHONY: commit-version-files
+commit-version-files:
+	git add Cargo.toml Cargo.lock
+	git commit -m "chore(release): v$$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')"
+
+.PHONY: create-minor-release
+create-minor-release: ## bumps minor version, builds, commits, tags, and pushes
+	$(MAKE) bump-version-minor
 	$(MAKE) release
-	git add Cargo.toml
-	git commit -m "chore(release): v$(shell cargo pkgid | cut -d# -f2 | cut -d: -f2)"
+	$(MAKE) commit-version-files
 	$(MAKE) tag-release
 	$(MAKE) push-release
 
+.PHONY: create-patch-release
+create-patch-release: ## bumps patch version, builds, commits, tags, and pushes
+	$(MAKE) bump-version-patch
+	$(MAKE) release
+	$(MAKE) commit-version-files
+	$(MAKE) tag-release
+	$(MAKE) push-release
