@@ -5,7 +5,6 @@ use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
 use reqwest::Url;
 use std::path::PathBuf;
-use std::str;
 mod git;
 use git::{LocalRepo, RemoteRepo, list_local_repos};
 use tokio::task::JoinHandle;
@@ -81,34 +80,34 @@ fn handle_new_pull(local_repo: LocalRepo, progress_bar: ProgressBar) -> JoinHand
                 };
             }
             Ok(output) => {
-                let error_message = str::from_utf8(output.stderr.trim_ascii()).unwrap();
-                let info_message = str::from_utf8(output.stdout.trim_ascii()).unwrap();
-                //TODO: change order of checks: Check Updated andPullNoOp first. Everything else is PullError. Problem: I don't know what to check.
-               if info_message != "Already up to date."
-                    || error_message.contains("Successfully rebased and updated refs/heads/main.")
-                    || info_message.contains("[new tag]")
-                {
+                let error_message = String::from_utf8_lossy(output.stderr.trim_ascii()).to_string();
+                let info_message = String::from_utf8_lossy(output.stdout.trim_ascii()).to_string();
+
+                // Any non-zero exit from git pull is an error (e.g. unresolved conflicts).
+                if !output.status.success() {
                     return GitResponse {
                         name: local_repo.name,
-                        message: info_message.to_string(),
-                        state: State::Updated,
+                        message: format!(
+                            "Error message: {}\nInfo message: {}",
+                            error_message, info_message
+                        ),
+                        state: State::PullError,
                     };
-                } else if info_message == "Already up to date." {
+                }
+
+                if info_message == "Already up to date" || info_message == "Already up to date." {
                     return GitResponse {
                         name: local_repo.name,
                         message: "".into(),
                         state: State::PullNoOp,
                     };
+                }
+
+                return GitResponse {
+                    name: local_repo.name,
+                    message: info_message,
+                    state: State::Updated,
                 };
-                 return GitResponse {
-                        name: local_repo.name,
-                        message: format!(
-                            "Error message:{}\nInfo message: {}",
-                            error_message.to_string(),
-                            info_message.to_string()
-                        ),
-                        state: State::PullError,
-                    };
             }
         };
     });
