@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "reposync"
-version = "85.0.3"
+version = "85.4.0"
 dependencies = [
  "clap",
  "indicatif",
