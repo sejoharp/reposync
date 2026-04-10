@@ -1,6 +1,6 @@
 [package]
 name = "reposync"
-version = "85.2.0"
+version = "85.3.0"
 edition = "2024"
 
 [dependencies]
