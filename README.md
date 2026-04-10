@@ -80,18 +80,8 @@ export GITHUB_TOKEN=ghp_56789
 
 ## create a release
 ```bash
-# bump version (patch by default)
-make version-update
-
-# create a git commit
-git add ...
-git commit ...
-
-# tag the commit
-make tag-release
-
-# push commit and tag
-make push-release
+# bump minor version, build, commit, tag, and push
+make create-release
 ```
 # benchmarks
 ## single threaded
