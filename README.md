@@ -95,7 +95,11 @@ make create-minor-release
 
 # bump patch version, build, commit, tag, and push
 make create-patch-release
+
+# bump major version, build, commit, tag, and push
+make create-major-release
 ```
+
 # benchmarks
 ## single threaded
 cargo run  3.21s user 4.07s system 6% cpu 1:51.83 total

@@ -12,6 +12,10 @@ test: ## executes tests
 build: ## builds binary with debug infos
 	cargo build
 
+.PHONY:bump-version-major
+bump-version-major: ## updates major version in Cargo.toml
+	scripts/bump-version.sh major
+
 .PHONY:bump-version-minor
 bump-version-minor: ## updates minor version in Cargo.toml
 	scripts/bump-version.sh minor
@@ -57,6 +61,14 @@ create-minor-release: ## bumps minor version, builds, commits, tags, and pushes
 .PHONY: create-patch-release
 create-patch-release: ## bumps patch version, builds, commits, tags, and pushes
 	$(MAKE) bump-version-patch
+	$(MAKE) release
+	$(MAKE) commit-version-files
+	$(MAKE) tag-release
+	$(MAKE) push-release
+
+.PHONY: create-major-release
+create-major-release: ## bumps major version, builds, commits, tags, and pushes
+	$(MAKE) bump-version-major
 	$(MAKE) release
 	$(MAKE) commit-version-files
 	$(MAKE) tag-release
