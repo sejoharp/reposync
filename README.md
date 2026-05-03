@@ -7,6 +7,7 @@
   - [install via nix home-manager](#install-via-nix-home-manager)
   - [set config](#set-config)
 - [Development](#development)
+  - [build](#build)
   - [create a release](#create-a-release)
 - [benchmarks](#benchmarks)
   - [single threaded](#single-threaded)
@@ -78,10 +79,22 @@ export GITHUB_TOKEN=ghp_56789
 
 # Development
 
+## build
+```bash
+# debug build
+make build
+
+# release build
+make release
+```
+
 ## create a release
 ```bash
 # bump minor version, build, commit, tag, and push
-make create-release
+make create-minor-release
+
+# bump patch version, build, commit, tag, and push
+make create-patch-release
 ```
 # benchmarks
 ## single threaded
